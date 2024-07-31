@@ -1,6 +1,6 @@
 FROM python:3.8-slim
 
-RUN pip install snmpsim-lextudio
+RUN pip install snmpsim
 
 RUN adduser --system snmpsim
 
