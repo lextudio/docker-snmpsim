@@ -1,14 +1,23 @@
-FROM python:3.8-slim
+FROM python:3.10-slim
 
 # Metadata
 LABEL maintainer="support@lextudio.com"
 LABEL description="Docker image for running snmpsim (PySNMP Simulator)"
-LABEL version="1.0"
+LABEL version="1.1"
 
-RUN pip install snmpsim
+RUN pip install --no-cache-dir snmpsim pysnmp
 
-ADD data /usr/local/snmpsim/data
+COPY data /usr/local/snmpsim/data
+COPY snmptrapd.py /opt/snmptrapd.py
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
 
 EXPOSE 161/udp
+EXPOSE 162/udp
 
-CMD SNMPSIM_ALLOW_ROOT=true snmpsim-command-responder --agent-udpv4-endpoint=0.0.0.0:161 $EXTRA_FLAGS
+ENV SNMPTRAPD_ENABLED=1
+
+ENTRYPOINT ["/start.sh"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s \
+  CMD sh -c 'SNMPSIM_PID=$(cat /var/run/snmpsim/snmpsim.pid 2>/dev/null) && kill -0 "$SNMPSIM_PID" 2>/dev/null || exit 1; FLAG="${SNMPTRAPD_ENABLED:-1}"; if [ "$FLAG" = "0" ] || [ "$FLAG" = "false" ]; then exit 0; fi; TRAP_PID=$(cat /var/run/snmpsim/snmptrapd.pid 2>/dev/null) && kill -0 "$TRAP_PID" 2>/dev/null || exit 1'
