@@ -36,6 +36,7 @@ COMMUNITY = os.environ.get("SNMPTRAPD_COMMUNITY", "public")
 LOG_FILE = os.environ.get("SNMPTRAPD_LOG_FILE")
 LOG_LEVEL = os.environ.get("SNMPTRAPD_LOG_LEVEL", "INFO").upper()
 V3_USERS_RAW = os.environ.get("SNMPTRAPD_V3_USERS", "").strip()
+VACM_SUBTREE = (1, 3, 6)
 
 AUTH_PROTOCOLS = {
     "NONE": usmNoAuthProtocol,
@@ -130,6 +131,20 @@ def _configure_v3_users(snmp_engine: engine.SnmpEngine) -> None:
             continue
 
         config.addV3User(snmp_engine, username, auth_protocol, auth_key, priv_protocol, priv_key)
+        security_level = "noAuthNoPriv"
+        if auth_protocol is not usmNoAuthProtocol and priv_protocol is usmNoPrivProtocol:
+            security_level = "authNoPriv"
+        elif auth_protocol is not usmNoAuthProtocol and priv_protocol is not usmNoPrivProtocol:
+            security_level = "authPriv"
+        config.addVacmUser(
+            snmp_engine,
+            3,
+            username,
+            security_level,
+            VACM_SUBTREE,
+            VACM_SUBTREE,
+            VACM_SUBTREE,
+        )
         logging.info(
             "Configured SNMPv3 user '%s' (auth=%s, priv=%s)",
             username,
@@ -165,6 +180,8 @@ def main() -> None:
     )
 
     config.addV1System(snmp_engine, "trap-area", COMMUNITY)
+    config.addVacmUser(snmp_engine, 1, "trap-area", "noAuthNoPriv", VACM_SUBTREE, VACM_SUBTREE, VACM_SUBTREE)
+    config.addVacmUser(snmp_engine, 2, "trap-area", "noAuthNoPriv", VACM_SUBTREE, VACM_SUBTREE, VACM_SUBTREE)
     _configure_v3_users(snmp_engine)
 
     def cb_fun(snmp_engine, state_reference, context_engine_id, context_name, var_binds, cb_ctx):
