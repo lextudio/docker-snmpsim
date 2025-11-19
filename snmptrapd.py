@@ -6,29 +6,18 @@ It is based on the sample from snmpreceiver/snmptrapd.py but adjusted to
 stream logs to stdout (better for containers) and expose a few environment
 variables for configuration.
 """
+import asyncio
 import logging
 import os
 import sys
 from typing import List, Sequence, Tuple, Union
 
-from pysnmp.carrier.asyncore.dgram import udp
+from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.entity import config, engine
 from pysnmp.entity.rfc3413 import ntfrcv
-from pysnmp.hlapi import (
-    usm3DESEDEPrivProtocol,
-    usmAesCfb128Protocol,
-    usmAesCfb192Protocol,
-    usmAesCfb256Protocol,
-    usmDESPrivProtocol,
-    usmHMAC128SHA224AuthProtocol,
-    usmHMAC192SHA256AuthProtocol,
-    usmHMAC256SHA384AuthProtocol,
-    usmHMAC384SHA512AuthProtocol,
-    usmHMACMD5AuthProtocol,
-    usmHMACSHAAuthProtocol,
-    usmNoAuthProtocol,
-    usmNoPrivProtocol,
-)
+
+EVENT_LOOP = asyncio.new_event_loop()
+asyncio.set_event_loop(EVENT_LOOP)
 
 TRAP_ADDRESS = os.environ.get("SNMPTRAPD_ADDRESS", "0.0.0.0")
 TRAP_PORT = int(os.environ.get("SNMPTRAPD_PORT", "162"))
@@ -39,22 +28,22 @@ V3_USERS_RAW = os.environ.get("SNMPTRAPD_V3_USERS", "").strip()
 VACM_SUBTREE = (1, 3, 6)
 
 AUTH_PROTOCOLS = {
-    "NONE": usmNoAuthProtocol,
-    "MD5": usmHMACMD5AuthProtocol,
-    "SHA": usmHMACSHAAuthProtocol,
-    "SHA224": usmHMAC128SHA224AuthProtocol,
-    "SHA256": usmHMAC192SHA256AuthProtocol,
-    "SHA384": usmHMAC256SHA384AuthProtocol,
-    "SHA512": usmHMAC384SHA512AuthProtocol,
+    "NONE": config.USM_AUTH_NONE,
+    "MD5": config.USM_AUTH_HMAC96_MD5,
+    "SHA": config.USM_AUTH_HMAC96_SHA,
+    "SHA224": config.USM_AUTH_HMAC128_SHA224,
+    "SHA256": config.USM_AUTH_HMAC192_SHA256,
+    "SHA384": config.USM_AUTH_HMAC256_SHA384,
+    "SHA512": config.USM_AUTH_HMAC384_SHA512,
 }
 
 PRIV_PROTOCOLS = {
-    "NONE": usmNoPrivProtocol,
-    "DES": usmDESPrivProtocol,
-    "3DES": usm3DESEDEPrivProtocol,
-    "AES128": usmAesCfb128Protocol,
-    "AES192": usmAesCfb192Protocol,
-    "AES256": usmAesCfb256Protocol,
+    "NONE": config.USM_PRIV_NONE,
+    "DES": config.USM_PRIV_CBC56_DES,
+    "3DES": config.USM_PRIV_CBC168_3DES,
+    "AES128": config.USM_PRIV_CFB128_AES,
+    "AES192": config.USM_PRIV_CFB192_AES,
+    "AES256": config.USM_PRIV_CFB256_AES,
 }
 
 
@@ -104,16 +93,16 @@ def _configure_v3_users(snmp_engine: engine.SnmpEngine) -> None:
         return
 
     for username, auth_proto_name, auth_key, priv_proto_name, priv_key in _parse_v3_users(V3_USERS_RAW):
-        auth_protocol = _resolve_protocol(AUTH_PROTOCOLS, auth_proto_name, usmNoAuthProtocol)
+        auth_protocol = _resolve_protocol(AUTH_PROTOCOLS, auth_proto_name, config.USM_AUTH_NONE)
         if auth_protocol is None:
             continue
-        priv_protocol = _resolve_protocol(PRIV_PROTOCOLS, priv_proto_name, usmNoPrivProtocol)
+        priv_protocol = _resolve_protocol(PRIV_PROTOCOLS, priv_proto_name, config.USM_PRIV_NONE)
         if priv_protocol is None:
             continue
 
-        if auth_protocol is usmNoAuthProtocol:
+        if auth_protocol == config.USM_AUTH_NONE:
             auth_key = None
-            if priv_protocol is not usmNoPrivProtocol:
+            if priv_protocol != config.USM_PRIV_NONE:
                 logging.error(
                     "SNMPv3 user '%s' requests privacy without authentication, which is not allowed. "
                     "Either specify an auth protocol/key or disable privacy.",
@@ -124,19 +113,19 @@ def _configure_v3_users(snmp_engine: engine.SnmpEngine) -> None:
             logging.error("SNMPv3 user '%s' requires auth key for protocol %s", username, auth_proto_name or "UNKNOWN")
             continue
 
-        if priv_protocol is usmNoPrivProtocol:
+        if priv_protocol == config.USM_PRIV_NONE:
             priv_key = None
         elif not priv_key:
             logging.error("SNMPv3 user '%s' requires priv key for protocol %s", username, priv_proto_name or "UNKNOWN")
             continue
 
-        config.addV3User(snmp_engine, username, auth_protocol, auth_key, priv_protocol, priv_key)
+        config.add_v3_user(snmp_engine, username, auth_protocol, auth_key, priv_protocol, priv_key)
         security_level = "noAuthNoPriv"
-        if auth_protocol is not usmNoAuthProtocol and priv_protocol is usmNoPrivProtocol:
+        if auth_protocol != config.USM_AUTH_NONE and priv_protocol == config.USM_PRIV_NONE:
             security_level = "authNoPriv"
-        elif auth_protocol is not usmNoAuthProtocol and priv_protocol is not usmNoPrivProtocol:
+        elif auth_protocol != config.USM_AUTH_NONE and priv_protocol != config.USM_PRIV_NONE:
             security_level = "authPriv"
-        config.addVacmUser(
+        config.add_vacm_user(
             snmp_engine,
             3,
             username,
@@ -172,20 +161,25 @@ def main() -> None:
         TRAP_PORT,
         COMMUNITY,
     )
+    logging.info("SNMP engineID: %s", snmp_engine.snmpEngineID.prettyPrint())
 
-    config.addTransport(
+    config.add_transport(
         snmp_engine,
-        udp.domainName + (1,),
-        udp.UdpTransport().openServerMode((TRAP_ADDRESS, TRAP_PORT)),
+        udp.DOMAIN_NAME,
+        udp.UdpTransport().open_server_mode((TRAP_ADDRESS, TRAP_PORT)),
     )
 
-    config.addV1System(snmp_engine, "trap-area", COMMUNITY)
-    config.addVacmUser(snmp_engine, 1, "trap-area", "noAuthNoPriv", VACM_SUBTREE, VACM_SUBTREE, VACM_SUBTREE)
-    config.addVacmUser(snmp_engine, 2, "trap-area", "noAuthNoPriv", VACM_SUBTREE, VACM_SUBTREE, VACM_SUBTREE)
+    config.add_v1_system(snmp_engine, "trap-area", COMMUNITY)
+    config.add_vacm_user(
+        snmp_engine, 1, "trap-area", "noAuthNoPriv", VACM_SUBTREE, VACM_SUBTREE, VACM_SUBTREE
+    )
+    config.add_vacm_user(
+        snmp_engine, 2, "trap-area", "noAuthNoPriv", VACM_SUBTREE, VACM_SUBTREE, VACM_SUBTREE
+    )
     _configure_v3_users(snmp_engine)
 
     def cb_fun(snmp_engine, state_reference, context_engine_id, context_name, var_binds, cb_ctx):
-        transport_domain, transport_address = snmp_engine.msgAndPduDsp.getTransportInfo(
+        transport_domain, transport_address = snmp_engine.message_dispatcher.get_transport_info(
             state_reference
         )
         logging.info(
@@ -199,14 +193,14 @@ def main() -> None:
 
     ntfrcv.NotificationReceiver(snmp_engine, cb_fun)
 
-    snmp_engine.transportDispatcher.jobStarted(1)
+    snmp_engine.transport_dispatcher.job_started(1)
 
     try:
-        snmp_engine.transportDispatcher.runDispatcher()
+        snmp_engine.open_dispatcher()
     except KeyboardInterrupt:
         logging.info("Trap receiver interrupted, shutting down")
     finally:
-        snmp_engine.transportDispatcher.closeDispatcher()
+        snmp_engine.close_dispatcher()
 
 
 if __name__ == "__main__":

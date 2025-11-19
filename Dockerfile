@@ -5,7 +5,7 @@ LABEL maintainer="support@lextudio.com"
 LABEL description="Docker image for running snmpsim (PySNMP Simulator)"
 LABEL version="1.1"
 
-RUN pip install --no-cache-dir snmpsim pysnmp
+RUN pip install --no-cache-dir cryptography pysnmp snmpsim
 
 COPY data /usr/local/snmpsim/data
 COPY snmptrapd.py /opt/snmptrapd.py
