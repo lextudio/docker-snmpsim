@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.14-slim
 
 # Metadata
 LABEL maintainer="support@lextudio.com"
@@ -6,7 +6,7 @@ LABEL description="Docker image for running snmpsim (PySNMP Simulator)"
 LABEL version="1.1"
 
 # Install exact versions so the image always picks up the expected releases.
-RUN pip install --no-cache-dir cryptography pysnmp pysmi snmpsim==1.2.0
+RUN pip install --no-cache-dir cryptography pysnmp pysmi snmpsim==1.2.1
 
 COPY data /usr/local/snmpsim/data
 COPY snmptrapd.py /opt/snmptrapd.py

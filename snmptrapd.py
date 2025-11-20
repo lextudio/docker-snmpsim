@@ -12,6 +12,8 @@ import os
 import sys
 from typing import List, Sequence, Tuple, Union
 
+from pysnmp import debug as pysnmp_debug
+from pysnmp import error as pysnmp_error
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.entity import config, engine
 from pysnmp.entity.rfc3413 import ntfrcv
@@ -26,6 +28,7 @@ LOG_FILE = os.environ.get("SNMPTRAPD_LOG_FILE")
 LOG_LEVEL = os.environ.get("SNMPTRAPD_LOG_LEVEL", "INFO").upper()
 V3_USERS_RAW = os.environ.get("SNMPTRAPD_V3_USERS", "").strip()
 VACM_SUBTREE = (1, 3, 6)
+PYSNMP_DEBUG = os.environ.get("SNMPTRAPD_PYSNMP_DEBUG", "").strip()
 
 AUTH_PROTOCOLS = {
     "NONE": config.USM_AUTH_NONE,
@@ -152,6 +155,14 @@ def main() -> None:
     else:
         log_kwargs["stream"] = sys.stdout
     logging.basicConfig(**log_kwargs)
+
+    if PYSNMP_DEBUG:
+        debug_topics = [topic.strip() for topic in PYSNMP_DEBUG.split(",") if topic.strip()]
+        logging.info("Enabling PySNMP debug for topics: %s", ", ".join(debug_topics))
+        try:
+            pysnmp_debug.set_logger(pysnmp_debug.Debug(*debug_topics))
+        except pysnmp_error.PySnmpError as exc:
+            logging.error("Failed to enable PySNMP debug: %s", exc)
 
     snmp_engine = engine.SnmpEngine()
 

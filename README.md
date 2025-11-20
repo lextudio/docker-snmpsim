@@ -46,6 +46,10 @@ The helper respects additional optional variables:
 
   Supported auth protocols: `MD5`, `SHA`, `SHA224`, `SHA256`, `SHA384`, `SHA512`, or `NONE`.
   Supported privacy protocols: `DES`, `3DES`, `AES128`, `AES192`, `AES256`, or `NONE`.
+* `SNMPTRAPD_PYSNMP_DEBUG` – comma-separated PySNMP debug topics (e.g.
+  `io,dsp,msgproc,secmod`). Valid values map to the flags in `pysnmp.debug.FLAG_MAP`.
+  This enables low-level protocol traces that are very helpful when debugging SNMPv3
+  auth/priv failures.
 
 To learn more about snmpsim, please visit [its docs](https://www.pysnmp.com/snmpsim/).
 
